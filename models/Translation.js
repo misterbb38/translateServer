@@ -8,6 +8,11 @@ const TranslationSchema = new mongoose.Schema({
     ref: 'User',
     required: true,
   },
+  model: {
+    type: String,
+    enum: ['claude', 'gemini', 'gpt'],
+    required: true
+  },
   sourceLanguage: {
     type: String,
     required: true,
