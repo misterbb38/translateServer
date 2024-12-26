@@ -24,3 +24,5 @@ router.post('/translate', authMiddleware, translateText);
 router.get('/', authMiddleware, getUserTranslations);
 
 module.exports = router;
+
+

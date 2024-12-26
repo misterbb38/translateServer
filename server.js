@@ -4,6 +4,8 @@ const connectDB = require('./config/db');
 const authRoutes = require('./routes/authRoutes');
 const glossaryRoutes = require('./routes/glossaryRoutes');
 const translationRoutes = require('./routes/translationRoutes');
+const definitionRoutes = require('./routes/definitionRoutes');
+
 const cors = require('cors');
 require('dotenv').config();
 
@@ -20,6 +22,7 @@ app.use(cors());
 app.use('/api/auth', authRoutes);
 app.use('/api/glossaries', glossaryRoutes);
 app.use('/api/translations', translationRoutes);
+app.use('/api/definitions', definitionRoutes);
 
 // Démarrer le serveur
 const PORT = process.env.PORT || 5000;
