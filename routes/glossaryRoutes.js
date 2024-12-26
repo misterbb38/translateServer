@@ -15,6 +15,8 @@ router.get('/:id', authMiddleware, glossaryController.getGlossaryById);
 // Mettre à jour un glossaire
 router.put('/:id', authMiddleware, glossaryController.updateGlossary);
 
+router.post('/:id/terms', authMiddleware, glossaryController.addTermToGlossary);
+
 // Supprimer un glossaire
 router.delete('/:id', authMiddleware, glossaryController.deleteGlossary);
 

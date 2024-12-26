@@ -2,6 +2,46 @@
 
 const Glossary = require('../models/Glossary');
 
+
+exports.addTermToGlossary = async (req, res) => {
+  try {
+    const glossaryId = req.params.id;
+    const { source, target } = req.body;
+
+    // Vérifier que source et target ne sont pas vides
+    if (!source || !target) {
+      return res.status(400).json({
+        message: 'Veuillez fournir le terme source et le terme cible.',
+      });
+    }
+
+    // Récupérer le glossaire
+    const glossary = await Glossary.findById(glossaryId);
+
+    // Vérifier l’existence du glossaire
+    if (!glossary) {
+      return res.status(404).json({ message: 'Glossaire non trouvé.' });
+    }
+
+    // Vérifier que l'utilisateur est propriétaire du glossaire
+    if (glossary.user.toString() !== req.user.id) {
+      return res.status(403).json({ message: 'Accès non autorisé.' });
+    }
+
+    // Ajouter le nouveau terme dans le tableau terms
+    glossary.terms.push({ source, target });
+
+    // Sauvegarder le glossaire mis à jour
+    const updatedGlossary = await glossary.save();
+
+    return res.status(200).json(updatedGlossary);
+  } catch (error) {
+    console.error('Erreur lors de l\'ajout du terme au glossaire:', error.message);
+    return res.status(500).json({ message: 'Erreur du serveur.' });
+  }
+};
+
+
 // Fonction pour créer un glossaire
 exports.createGlossary = async (req, res) => {
   try {
