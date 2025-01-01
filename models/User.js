@@ -17,6 +17,22 @@ const UserSchema = new mongoose.Schema({
     type: String,
     required: true,
   },
+  subscriptionPlan: {
+    type: String,
+    enum: ['free', 'starter', 'pro', 'enterprise'],
+    default: 'free'
+  },
+  stripeCustomerId: String,
+  monthlyUsage: {
+    characters: {
+      type: Number,
+      default: 0
+    },
+    translations: {
+      type: Number,
+      default: 0
+    }
+  },
   createdAt: {
     type: Date,
     default: Date.now,

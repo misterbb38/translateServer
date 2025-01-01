@@ -3,6 +3,7 @@
 const Translation = require('../models/Translation');
 const Glossary = require('../models/Glossary');
 const mongoose = require('mongoose');
+const Subscription = require('../models/Subscription');
 const { generateTranslation } = require('../utils/geminiAPI'); // Importer la fonction depuis geminiAPI.js
 const { generateClaudeTranslation } = require('../utils/claudeAPI');
 const { generateOpenAITranslation } = require('../utils/openaiAPI');
@@ -43,7 +44,28 @@ function createPrompt(text, relevantTerms, sourceLanguage, targetLanguage) {
 
   return prompt;
 }
-
+// Définir les limites de chaque plan
+const PLAN_LIMITS = {
+  free: {
+    characters: 50000,
+    translations: 50
+  },
+  starter: {
+    characters: 300000,
+    translations: 300,
+    price_id: process.env.STRIPE_STARTER_PRICE_ID
+  },
+  pro: {
+    characters: 1000000,
+    translations: 1000,
+    price_id: process.env.STRIPE_PRO_PRICE_ID
+  },
+  enterprise: { // Ajouter le plan enterprise
+    characters: 5000000,
+    translations: 5000,
+    price_id: process.env.STRIPE_ENTERPRISE_PRICE_ID
+  }
+};
 // Fonction pour traduire le texte
 
 // exports.translateText = async (req, res) => {
@@ -54,7 +76,7 @@ function createPrompt(text, relevantTerms, sourceLanguage, targetLanguage) {
 //       return res.status(400).json({ message: 'Veuillez fournir toutes les informations requises.' });
 //     }
 
-//     if (!['claude', 'gemini'].includes(model)) {
+//     if (!['claude', 'gemini', 'gpt'].includes(model)) {
 //       return res.status(400).json({ message: 'Modèle de traduction invalide.' });
 //     }
 
@@ -83,10 +105,15 @@ function createPrompt(text, relevantTerms, sourceLanguage, targetLanguage) {
 //     const prompt = createPrompt(text, relevantTerms, sourceLanguage, targetLanguage);
     
 //     let translatedText;
-//     if (model === 'claude') {
-//       translatedText = await generateClaudeTranslation(prompt);
-//     } else {
-//       translatedText = await generateTranslation(prompt);
+//     switch(model) {
+//       case 'claude':
+//         translatedText = await generateClaudeTranslation(prompt);
+//         break;
+//       case 'gpt':
+//         translatedText = await generateOpenAITranslation(prompt);
+//         break;
+//       default:
+//         translatedText = await generateTranslation(prompt);
 //     }
 
 //     const newTranslation = new Translation({
@@ -108,19 +135,35 @@ function createPrompt(text, relevantTerms, sourceLanguage, targetLanguage) {
 //   }
 // };
 
+// Helper pour obtenir le mois courant au format "YYYY-MM"
+function getCurrentMonthString() {
+  const now = new Date();
+  const year = now.getFullYear();
+  // On ajoute +1 à getMonth() car janvier = 0
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  return `${year}-${month}`; // ex: "2023-07"
+}
+
+/**
+ * Controller : Traduire du texte et mettre à jour l'usage de l'utilisateur.
+ */
+// controllers/translationController.js
 
 exports.translateText = async (req, res) => {
   try {
     const { text, glossaryId, sourceLanguage, targetLanguage, model } = req.body;
 
+    // 1) Vérifier les paramètres requis
     if (!text || !sourceLanguage || !targetLanguage || !model) {
       return res.status(400).json({ message: 'Veuillez fournir toutes les informations requises.' });
     }
 
+    // Vérifier le modèle
     if (!['claude', 'gemini', 'gpt'].includes(model)) {
       return res.status(400).json({ message: 'Modèle de traduction invalide.' });
     }
 
+    // 2) Gérer le glossaire (si glossaryId est présent)
     let relevantTerms = {};
     if (glossaryId) {
       if (!mongoose.Types.ObjectId.isValid(glossaryId)) {
@@ -132,21 +175,24 @@ exports.translateText = async (req, res) => {
         return res.status(404).json({ message: 'Glossaire non trouvé.' });
       }
 
+      // Vérifier que l'utilisateur possède bien ce glossaire
       if (glossary.user.toString() !== req.user.id) {
         return res.status(403).json({ message: 'Accès non autorisé.' });
       }
 
+      // Vérifier la cohérence des langues
       if (glossary.sourceLanguage !== sourceLanguage || glossary.targetLanguage !== targetLanguage) {
         return res.status(400).json({ message: 'Les langues du glossaire ne correspondent pas.' });
       }
 
+      // Extraire les termes pertinents
       relevantTerms = extractRelevantTerms(text, glossary.terms);
     }
 
+    // 3) Créer le prompt et appeler l’API de traduction
     const prompt = createPrompt(text, relevantTerms, sourceLanguage, targetLanguage);
-    
     let translatedText;
-    switch(model) {
+    switch (model) {
       case 'claude':
         translatedText = await generateClaudeTranslation(prompt);
         break;
@@ -157,6 +203,7 @@ exports.translateText = async (req, res) => {
         translatedText = await generateTranslation(prompt);
     }
 
+    // 4) Enregistrer la traduction
     const newTranslation = new Translation({
       user: req.user.id,
       sourceLanguage,
@@ -164,19 +211,99 @@ exports.translateText = async (req, res) => {
       sourceText: text,
       translatedText,
       glossary: glossaryId || null,
-      model
+      model,
+    });
+    await newTranslation.save();
+
+    // 5) Mettre à jour l'usage dans la subscription
+    //    => calculer le nombre de mots (ou de caractères) à partir du 'text'
+    const wordsCount = text.trim().split(/\s+/).length; // ou text.length pour caractères
+    const currentMonth = getCurrentMonthString();
+
+    const subscription = await Subscription.findOne({
+      user: req.user.id,
+      status: 'active',
     });
 
-    await newTranslation.save();
-    res.status(200).json({ translatedText });
-    
+    if (subscription) {
+      // Vérifier que currentPeriodEnd est défini et valide
+      if (!subscription.currentPeriodEnd || isNaN(new Date(subscription.currentPeriodEnd))) {
+        console.warn(`currentPeriodEnd invalid or missing for subscription ${subscription._id}`);
+        subscription.daysUntilRenewal = null; // ou une valeur par défaut appropriée
+      } else {
+        // Calculer les jours jusqu'au renouvellement
+        const now = new Date();
+        const currentPeriodEnd = new Date(subscription.currentPeriodEnd);
+        const diffTime = currentPeriodEnd - now;
+        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+        subscription.daysUntilRenewal = diffDays;
+        console.log(`daysUntilRenewal for subscription ${subscription._id}: ${diffDays}`);
+      }
+
+      // Initialiser usageThisMonth si undefined
+      if (!subscription.usageThisMonth) {
+        console.log(`Initializing usageThisMonth for subscription ${subscription._id}`);
+        subscription.usageThisMonth = { characters: 0, translations: 0 };
+      }
+
+      // Chercher s'il existe déjà une entrée dans usageHistory pour le mois courant
+      const monthEntry = subscription.usageHistory.find(
+        (entry) => entry.month === currentMonth
+      );
+
+      if (monthEntry) {
+        monthEntry.words += wordsCount;
+        monthEntry.requests += 1;
+      } else {
+        // Créer une nouvelle entrée pour ce mois
+        subscription.usageHistory.push({
+          month: currentMonth,
+          words: wordsCount,
+          requests: 1,
+        });
+      }
+
+      // Mettre à jour également usageThisMonth (si vous gérez toujours une limite mensuelle)
+      subscription.usageThisMonth.characters += wordsCount; // ou .words
+      subscription.usageThisMonth.translations += 1;
+
+      // Définir isApproachingLimit en fonction des seuils (ex : 80%)
+      const CHARACTER_THRESHOLD = 0.8; // 80%
+      const TRANSLATION_THRESHOLD = 0.8; // 80%
+
+      const currentPlanLimits = PLAN_LIMITS[subscription.plan];
+      if (!currentPlanLimits) {
+        console.warn(`Limits not defined for plan: ${subscription.plan}`);
+      }
+
+      const characterUsageRatio = currentPlanLimits
+        ? subscription.usageThisMonth.characters / currentPlanLimits.characters
+        : 0;
+      const translationUsageRatio = currentPlanLimits
+        ? subscription.usageThisMonth.translations / currentPlanLimits.translations
+        : 0;
+
+      subscription.isApproachingLimit =
+        characterUsageRatio >= CHARACTER_THRESHOLD ||
+        translationUsageRatio >= TRANSLATION_THRESHOLD;
+
+      console.log(`isApproachingLimit for subscription ${subscription._id}: ${subscription.isApproachingLimit}`);
+
+      await subscription.save();
+    }
+
+    // 6) Réponse finale
+    return res.status(200).json({ translatedText });
   } catch (error) {
-    console.error('Erreur lors de la traduction:', error.message);
-    res.status(500).json({ message: 'Erreur du serveur.' });
+    console.error('Erreur lors de la traduction :', error.message);
+    return res.status(500).json({ message: 'Erreur du serveur.' });
   }
 };
 
-// Fonction pour récupérer les traductions de l'utilisateur
+
+
+
+
 exports.getUserTranslations = async (req, res) => {
   try {
     const translations = await Translation.find({ user: req.user.id }).sort({ createdAt: -1 });
