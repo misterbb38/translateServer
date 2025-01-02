@@ -712,7 +712,7 @@ exports.createCheckoutSession = async (req, res) => {
     const { planId } = req.body;
     const user = await User.findById(req.user.id);
 
-    // Vérifier si le plan existe
+    // Vérifier si le plan existes
     if (!PLAN_LIMITS[planId] || !PLAN_LIMITS[planId].price_id) {
       return res.status(400).json({ message: 'Plan invalide' });
     }
