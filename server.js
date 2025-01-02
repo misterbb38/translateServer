@@ -18,6 +18,10 @@ connectDB();
 // Middleware
 app.use(express.json());
 app.use(cors());
+// Correction pour définir une route racine
+app.get('/', function (req, res) {
+    return res.status(200).json({ message: 'Welcome to the API' });
+});
 
 // Routes
 app.use('/api/auth', authRoutes);
