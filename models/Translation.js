@@ -10,7 +10,7 @@
     },
     model: {
       type: String,
-      enum: ['claude', 'gemini', 'gpt'],
+      enum: ['claude', 'gemini', 'gpt', 'deepseek'],
       required: true
     },
     sourceLanguage: {
