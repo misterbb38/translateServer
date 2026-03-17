@@ -44,9 +44,11 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 async function generateTranslation(prompt, options = {}) {
   try {
-    const modelName = options.model || "gemini-2.0-flash"; // remplace gemini-1.5-flash
-    // alternatives : "gemini-2.0-flash-lite" (plus économique)
-    //                "gemini-2.5-pro-preview-03-25" (meilleure qualité)
+    const modelName = options.model || "gemini-2.5-flash"; // ✅ stable, recommandé production
+    // alternatives :
+    // "gemini-3-flash-preview"       → le plus récent, preview (gratuit sur AI Studio)
+    // "gemini-3.1-flash-lite-preview" → le plus économique, preview
+    // "gemini-3.1-pro-preview"        → le plus puissant (payant uniquement)
 
     const model = genAI.getGenerativeModel({ model: modelName });
     const generationConfig = options.generationConfig || {};

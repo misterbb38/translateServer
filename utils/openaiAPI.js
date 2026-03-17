@@ -20,8 +20,8 @@ const generateOpenAITranslation = async (prompt) => {
   const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
   const response = await openai.chat.completions.create({
-    model: "gpt-4o", // remplace gpt-4-turbo-preview — rapide et économique
-    // model: "gpt-4o",   // meilleure qualité si besoin
+    model: "gpt-5.4", // ✅ rapide et économique — recommandé pour traductions
+    // model: "gpt-5.4",   // meilleure qualité si besoin (plus coûteux)
     messages: [{ role: "user", content: prompt }]
   });
 
